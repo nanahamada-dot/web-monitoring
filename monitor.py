@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
+import hashlib
 
 # 監視対象リスト
 SITES = [
@@ -25,54 +26,68 @@ SITES = [
     {"name": "キズキ", "url": "https://kizuki-corp.com/single-mother-support/"}
 ]
 
-DB_FILE = "last_content.json"
-WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
+SLACK_WEBHOOK_URL = os.environ.get('SLACK_WEBHOOK_URL')
+DATA_FILE = 'last_content.json'
 
-def get_content(url):
+def get_site_text(url):
     try:
-        res = requests.get(url, timeout=15)
-        res.raise_for_status()
-        soup = BeautifulSoup(res.text, "html.parser")
-        # 不要なタグを除去してテキストのみ抽出（差分判定の精度を上げるため）
-        for s in soup(['script', 'style']):
-            s.decompose()
-        return soup.get_text()[:2000] # 前半2000文字程度で判定
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.37 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.37'}
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 不要なタグを削除してノイズを減らす
+        for script_or_style in soup(['script', 'style', 'header', 'footer', 'nav']):
+            script_or_style.decompose()
+            
+        # 純粋なテキストのみを取得し、余計な空白を詰める
+        text = soup.get_text()
+        lines = (line.strip() for line in text.splitlines())
+        clean_text = '\n'.join(chunk for chunk in lines if chunk)
+        return clean_text
     except Exception as e:
         print(f"Error checking {url}: {e}")
         return None
 
 def main():
-    # 前回データの読み込み
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
             last_data = json.load(f)
     else:
         last_data = {}
 
-    current_data = {}
+    new_data = {}
     updates = []
 
     for site in SITES:
-        name = site["name"]
-        url = site["url"]
-        content = get_content(url)
+        name = site['name']
+        url = site['url']
+        print(f"Checking {name}...")
         
-        if content:
-            current_data[name] = hash(content) # 内容をハッシュ化して保存
-            if name in last_data:
-                if last_data[name] != current_data[name]:
-                    updates.append(f"【更新検知】{name}\n{url}")
-            else:
-                print(f"Initial check for {name}")
+        current_text = get_site_text(url)
+        if current_text is None:
+            continue
+            
+        current_hash = hashlib.md5(current_text.encode('utf-8')).hexdigest()
+        new_data[name] = current_hash
 
-    # Slack通知
-    if updates and WEBHOOK_URL:
-        message = "\n\n".join(updates)
-        requests.post(WEBHOOK_URL, json={"text": message})
+        if name in last_data:
+            if last_data[name] != current_hash:
+                # 変化があった場合、文字数の差をチェック（あまりに小さい変化は無視）
+                # 初回は比較対象がないため通知しません
+                updates.append(f"【更新検知】 {name}\n{url}")
+        else:
+            print(f"First time checking {name}. Saving data.")
 
-    # データ更新保存
-    with open(DB_FILE, "w") as f:
-        json.dump(current_data, f)
+    # Slack送信
+    if updates and SLACK_WEBHOOK_URL:
+        payload = {"text": "\n\n".join(updates)}
+        requests.post(SLACK_WEBHOOK_URL, json=payload)
+
+    # データ保存
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(new_data, f, ensure_ascii=False, indent=2)
 
 if __name__ == "__main__":
     main()
