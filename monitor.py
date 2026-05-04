@@ -8,13 +8,14 @@ import re
 # 奈々さんの指示と解析に基づく監視リスト
 SITES = [
     {"name": "ブレスユー(TOP)", "url": "https://janpia.mothers-blessu.org/index.html", "selector": "#top_news"},
-    {"name": "デジタル未来塾(note)", "url": "https://note.com/digitalmiraijuku", "selector": "[data-testname='cardList']"},
+    # noteはタイトル(h3)に絞ることで誤検知を防止
+    {"name": "デジタル未来塾(note)", "url": "https://note.com/digitalmiraijuku", "selector": "[data-testname='cardList'] h3"},
     {"name": "デジタル未来塾(公式サイト)", "url": "https://digital-mirai-juku.com/", "selector": "#home-news, .home-post"},
     {"name": "きらりコーポレーション(公式)", "url": "https://www.kirari-co.info/", "selector": "section#information, .news-list"},
     {"name": "きらりコーポレーション(親子の窓口)", "url": "https://www.kirari-shinmama.com/", "selector": "#news, .instagram-section"},
     {"name": "キャリア・マム(公式)", "url": "https://corp.c-mam.co.jp/", "selector": "#topics, .topics-list"},
     {"name": "キャリア・マム(ブログ)", "url": "https://corp.c-mam.co.jp/blog/", "selector": "main#main, .entry-content"},
-    {"name": "うむさんラボ(note)", "url": "https://note.com/umusun_lab_", "selector": "[data-testname='cardList']"},
+    {"name": "うむさんラボ(note)", "url": "https://note.com/umusun_lab_", "selector": "[data-testname='cardList'] h3"},
     {"name": "Shimalov沖縄(Instagram)", "url": "https://www.instagram.com/shimalov.okinawa/", "selector": "article"},
     {"name": "スタンドアップマザー", "url": "https://www.standupmother.com/", "selector": "#home-news"},
     {"name": "オカヤマビューティサミット", "url": "https://okayamabs.org/", "selector": "#top-news, section.home-news"},
@@ -45,15 +46,18 @@ def get_site_text(url, selector):
         if not target:
             target = soup.find('main') or soup.find('body')
             
-        # スクリプトやスタイルを削除
-        for node in target(['script', 'style']):
+        # スクリプト、スタイル、メタ情報（footer等）を削除
+        for node in target(['script', 'style', 'footer', 'span']):
             node.decompose()
             
-        # 【重要】数字を無視して比較（スキの数や〇日前などの変動対策）
-        text = re.sub(r'\d+', '', target.get_text())
+        # テキストを取得
+        text = target.get_text()
         
-        # 空白を詰めて1行に正規化
-        return "".join(text.split())
+        # 【強化ロジック】すべての数字、空白、記号、改行を削除し、純粋な「文字」のみにする
+        # これにより「スキ数」「〇分前」「改行のズレ」を完全に無視します
+        clean_text = re.sub(r'[\d\s\W_]+', '', text)
+        
+        return clean_text
     except:
         return None
 
@@ -71,7 +75,8 @@ def main():
     for site in SITES:
         name, url, selector = site['name'], site['url'], site['selector']
         current_text = get_site_text(url, selector)
-        if current_text is None: continue
+        if current_text is None or current_text == "":
+            continue
             
         current_hash = hashlib.md5(current_text.encode('utf-8')).hexdigest()
         new_data[name] = current_hash
