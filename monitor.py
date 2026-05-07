@@ -24,6 +24,7 @@ SITES = [
     {"name": "CCOBI(BLOG)", "url": "https://cco-bi.com/", "selector": "#index-blog"},
     {"name": "コグニティ", "url": "https://cognitee.info/camelliaport/", "selector": ".wp-block-post-template"},
     {"name": "キズキ", "url": "https://kizuki-corp.com/single-mother-support/", "selector": "ul.cat_postlist__ul"}
+    {"name": "キャリア・マム(公式)", "url": "https://corp.c-mam.co.jp/", "selector": "#ltg_post_list-3"},
 ]
 
 SLACK_WEBHOOK_URL = os.environ.get('SLACK_WEBHOOK_URL')
